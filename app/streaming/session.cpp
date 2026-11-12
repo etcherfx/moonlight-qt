@@ -40,6 +40,7 @@
 #include <QGuiApplication>
 #include <QCursor>
 #include <QScreen>
+#include <QFile>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QQuickOpenGLUtils>
@@ -47,8 +48,52 @@
 
 #define CONN_TEST_SERVER "qt.conntest.moonlight-stream.org"
 
+// Test only: MOONLIGHT_QA_POWER_FILE names a file holding ac, battery or
+// none, which replaces the real power source while the file exists.
+static bool getFakePowerSource(PowerSource& source)
+{
+    static bool s_HaveLastFakeSource = false;
+    static PowerSource s_LastFakeSource = PowerSource::None;
+
+    QString path = qEnvironmentVariable("MOONLIGHT_QA_POWER_FILE");
+    if (path.isEmpty() || !QFile::exists(path)) {
+        return false;
+    }
+
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly)) {
+        QByteArray text = file.readAll().trimmed();
+        if (text == "ac") {
+            s_LastFakeSource = PowerSource::Ac;
+            s_HaveLastFakeSource = true;
+        }
+        else if (text == "battery") {
+            s_LastFakeSource = PowerSource::Battery;
+            s_HaveLastFakeSource = true;
+        }
+        else if (text == "none") {
+            s_LastFakeSource = PowerSource::None;
+            s_HaveLastFakeSource = true;
+        }
+    }
+
+    // An unreadable, empty or unknown file (for example one read while it
+    // is being rewritten) keeps the last value, or uses the real source.
+    if (!s_HaveLastFakeSource) {
+        return false;
+    }
+
+    source = s_LastFakeSource;
+    return true;
+}
+
 static PowerSource getPowerSource()
 {
+    PowerSource fakeSource;
+    if (getFakePowerSource(fakeSource)) {
+        return fakeSource;
+    }
+
     switch (SDL_GetPowerInfo(nullptr, nullptr)) {
     case SDL_POWERSTATE_ON_BATTERY:
         return PowerSource::Battery;
@@ -1680,6 +1725,12 @@ bool Session::startConnectionAsync()
 
     try {
         NvHTTP http(m_Computer);
+
+        // Test only: make the restarted session fail like a host error
+        if (m_IsRestart && qEnvironmentVariableIntValue("MOONLIGHT_QA_FAIL_RESTART") == 1) {
+            emit displayLaunchError("MOONLIGHT_QA_FAIL_RESTART is set");
+            return false;
+        }
 
         // Host polling is stopped while streaming, so currentGameId may be
         // stale when restarting. Ask the host what is running instead.
