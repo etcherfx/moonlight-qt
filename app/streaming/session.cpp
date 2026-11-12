@@ -1,7 +1,6 @@
 #include "session.h"
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
-#include "streaming/powersource.h"
 #include "backend/richpresencemanager.h"
 
 #include <Limelight.h>
@@ -593,6 +592,8 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_MouseEmulationRefCount(0),
       m_FlushingWindowEventsRef(0),
       m_ShouldExit(false),
+      m_RestartRequested(false),
+      m_IsRestart(false),
       m_AsyncConnectionSuccess(false),
       m_PortTestResults(0),
       m_OpusDecoder(nullptr),
@@ -696,6 +697,7 @@ bool Session::initialize(QQuickWindow* qtWindow)
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                 "Power source: %s",
                 powerSourceName(powerSource));
+    m_PowerDebouncer = PowerSourceDebouncer(powerSource);
 
     m_StreamConfig.fps = getFrameRateForPowerSource(m_Preferences->fps,
                                                     m_Preferences->fpsOnBattery,
@@ -1001,6 +1003,12 @@ bool Session::initialize(QQuickWindow* qtWindow)
 
 void Session::emitLaunchWarning(QString text)
 {
+    // A restarted session already showed these warnings when the stream
+    // first started, and each one would delay the restart.
+    if (m_IsRestart) {
+        return;
+    }
+
     if (m_Preferences->configurationWarnings) {
         // Queue this launch warning to be displayed after validation
         m_LaunchWarnings.append(text);
@@ -1309,16 +1317,24 @@ private:
 
     void run() override
     {
+        // A connection error or a quit request wins over a restart
+        if (m_Session->m_UnexpectedTermination || m_Session->m_ShouldExit) {
+            m_Session->m_RestartRequested = false;
+        }
+
         // Only quit the running app if our session terminated gracefully
+        // and we're not about to restart the stream
         bool shouldQuit =
                 !m_Session->m_UnexpectedTermination &&
+                !m_Session->m_RestartRequested &&
                 m_Session->m_Preferences->quitAppAfter;
 
-        // Notify the UI
+        // Notify the UI. When restarting, the UI waits for readyForDeletion()
+        // and starts the new session instead of leaving the stream.
         if (shouldQuit) {
             emit m_Session->quitStarting();
         }
-        else {
+        else if (!m_Session->m_RestartRequested) {
             emit m_Session->sessionFinished(m_Session->m_PortTestResults);
         }
 
@@ -1664,7 +1680,14 @@ bool Session::startConnectionAsync()
 
     try {
         NvHTTP http(m_Computer);
-        http.startApp(m_Computer->currentGameId != 0 ? "resume" : "launch",
+
+        // Host polling is stopped while streaming, so currentGameId may be
+        // stale when restarting. Ask the host what is running instead.
+        int currentGameId = m_IsRestart ?
+                    NvHTTP::getCurrentGame(http.getServerInfo(NvHTTP::NVLL_ERROR)) :
+                    m_Computer->currentGameId;
+
+        http.startApp(currentGameId != 0 ? "resume" : "launch",
                       m_Computer->isNvidiaServerSoftware,
                       m_App.id, &m_StreamConfig,
                       enableGameOptimizations,
@@ -1818,6 +1841,46 @@ void Session::start()
     QObject::connect(thread, &QThread::finished, this, &Session::exec);
     QObject::connect(thread, &QThread::finished, thread, &QThread::deleteLater);
     thread->start();
+}
+
+Session* Session::createRestartSession()
+{
+    if (!m_RestartRequested) {
+        return nullptr;
+    }
+
+    // The new session uses the same preferences object, so any command line
+    // overrides are kept. QML takes ownership of the returned object.
+    Session* session = new Session(m_Computer, m_App, m_Preferences);
+    session->m_IsRestart = true;
+    return session;
+}
+
+bool Session::shouldRestartForPowerSource()
+{
+    PowerSource oldSource = m_PowerDebouncer.current();
+    if (!m_PowerDebouncer.update(getPowerSource(), SDL_GetTicks())) {
+        return false;
+    }
+
+    PowerSource newSource = m_PowerDebouncer.current();
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "Power source: %s",
+                powerSourceName(newSource));
+
+    // Changes like ac to none don't change the frame rate
+    if (getFrameRateForPowerSource(m_Preferences->fps,
+                                   m_Preferences->fpsOnBattery,
+                                   newSource) == m_StreamConfig.fps) {
+        return false;
+    }
+
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "Restarting stream for power source change: %s to %s",
+                powerSourceName(oldSource),
+                powerSourceName(newSource));
+    m_RestartRequested = true;
+    return true;
 }
 
 void Session::interrupt()
@@ -2015,10 +2078,26 @@ void Session::exec()
     // Switch to async logging mode when we enter the SDL loop
     StreamUtils::enterAsyncLoggingMode();
 
+    // Only watch the power source if a change could switch the frame rate
+    bool watchPowerSource = m_Preferences->restartOnPowerChange &&
+                            getFrameRateForPowerSource(m_Preferences->fps,
+                                                       m_Preferences->fpsOnBattery,
+                                                       PowerSource::Battery) != m_Preferences->fps;
+    Uint32 lastPowerSourceCheckTime = SDL_GetTicks();
+
     // Hijack this thread to be the SDL main thread. We have to do this
     // because we want to suspend all Qt processing until the stream is over.
     SDL_Event event;
     for (;;) {
+        // Check the power source at most once per second. This runs on the
+        // wakeups the loop already takes, so it adds no timer of its own.
+        if (watchPowerSource && SDL_TICKS_PASSED(SDL_GetTicks(), lastPowerSourceCheckTime + 1000)) {
+            lastPowerSourceCheckTime = SDL_GetTicks();
+            if (shouldRestartForPowerSource()) {
+                goto DispatchDeferredCleanup;
+            }
+        }
+
 #if SDL_VERSION_ATLEAST(2, 0, 18) && !defined(STEAM_LINK)
         // SDL 2.0.18 has a proper wait event implementation that uses platform
         // support to block on events rather than polling on Windows, macOS, X11,

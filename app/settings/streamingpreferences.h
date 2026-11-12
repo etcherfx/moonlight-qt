@@ -123,6 +123,7 @@ public:
     Q_PROPERTY(int height MEMBER height NOTIFY displayModeChanged)
     Q_PROPERTY(int fps MEMBER fps NOTIFY displayModeChanged)
     Q_PROPERTY(int fpsOnBattery MEMBER fpsOnBattery NOTIFY fpsOnBatteryChanged)
+    Q_PROPERTY(bool restartOnPowerChange MEMBER restartOnPowerChange NOTIFY restartOnPowerChangeChanged)
     Q_PROPERTY(int bitrateKbps MEMBER bitrateKbps NOTIFY bitrateChanged)
     Q_PROPERTY(bool unlockBitrate MEMBER unlockBitrate NOTIFY unlockBitrateChanged)
     Q_PROPERTY(bool autoAdjustBitrate MEMBER autoAdjustBitrate NOTIFY autoAdjustBitrateChanged)
@@ -166,6 +167,7 @@ public:
     int height;
     int fps;
     int fpsOnBattery;
+    bool restartOnPowerChange;
     int bitrateKbps;
     bool unlockBitrate;
     bool autoAdjustBitrate;
@@ -206,6 +208,7 @@ public:
 signals:
     void displayModeChanged();
     void fpsOnBatteryChanged();
+    void restartOnPowerChangeChanged();
     void bitrateChanged();
     void unlockBitrateChanged();
     void autoAdjustBitrateChanged();

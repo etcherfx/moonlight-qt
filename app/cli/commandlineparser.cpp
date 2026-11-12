@@ -349,6 +349,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addToggleOption("vsync", "V-Sync");
     parser.addValueOption("fps", "FPS");
     parser.addValueOption("fps-on-battery", "FPS while on battery (0 to disable)");
+    parser.addToggleOption("restart-on-power-change", "stream restart when the power source changes");
     parser.addValueOption("bitrate", "bitrate in Kbps");
     parser.addValueOption("packet-size", "video packet size");
     parser.addChoiceOption("display-mode", "display mode", m_WindowModeMap.keys());
@@ -419,6 +420,9 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
             fprintf(stderr, "Warning: FPS on battery is out of the supported range (10 - 480 FPS). Performance may suffer!\n");
         }
     }
+
+    // Resolve --restart-on-power-change and --no-restart-on-power-change options
+    preferences->restartOnPowerChange = parser.getToggleOptionValue("restart-on-power-change", preferences->restartOnPowerChange);
 
     // Resolve --bitrate option
     if (parser.isSet("bitrate")) {

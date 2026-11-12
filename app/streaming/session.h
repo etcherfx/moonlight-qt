@@ -10,6 +10,7 @@
 #include "video/decoder.h"
 #include "audio/renderers/renderer.h"
 #include "video/overlaymanager.h"
+#include "powersource.h"
 
 class SupportedVideoFormatList : public QList<int>
 {
@@ -104,6 +105,7 @@ public:
     Q_INVOKABLE bool initialize(QQuickWindow* qtWindow);
     Q_INVOKABLE void start();
     Q_INVOKABLE void interrupt();
+    Q_INVOKABLE Session* createRestartSession();
     Q_PROPERTY(QStringList launchWarnings MEMBER m_LaunchWarnings NOTIFY launchWarningsChanged);
 
     static
@@ -151,6 +153,8 @@ private:
     bool validateLaunch(SDL_Window* testWindow);
 
     void emitLaunchWarning(QString text);
+
+    bool shouldRestartForPowerSource();
 
     bool populateDecoderProperties(SDL_Window* window);
 
@@ -264,6 +268,10 @@ private:
     int m_FlushingWindowEventsRef;
     QStringList m_LaunchWarnings;
     bool m_ShouldExit;
+
+    PowerSourceDebouncer m_PowerDebouncer;
+    bool m_RestartRequested; // This session ended to be restarted
+    bool m_IsRestart; // This session is the restarted one
 
     bool m_AsyncConnectionSuccess;
     int m_PortTestResults;

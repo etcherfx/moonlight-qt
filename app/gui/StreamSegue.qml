@@ -7,12 +7,15 @@ import Session 1.0
 import SystemProperties 1.0
 
 Item {
+    id: streamSegue
+
     property Session session
     property string appName
     property string stageText : isResume ? qsTr("Resuming %1...").arg(appName) :
                                            qsTr("Starting %1...").arg(appName)
     property bool isResume : false
     property bool quitAfter : false
+    property bool isPowerRestart : false
 
     function stageStarting(stage)
     {
@@ -38,6 +41,9 @@ Item {
         stageLabel.visible = false
         hintText.visible = false
 
+        // The power source restart worked
+        isPowerRestart = false
+
         // Hide the window now that streaming has begun
         window.visible = false
     }
@@ -61,6 +67,10 @@ Item {
 
     function sessionFinished(portTestResult)
     {
+        if (isPowerRestart) {
+            console.info("Stream restart failed")
+        }
+
         if (portTestResult !== 0 && portTestResult !== -1 && streamSegueErrorDialog.text) {
             streamSegueErrorDialog.text += "\n\n" + qsTr("This PC's Internet connection is blocking Moonlight. Streaming over the Internet may not work while connected to this network.")
         }
@@ -94,6 +104,25 @@ Item {
 
     function sessionReadyForDeletion()
     {
+        // If the session ended to switch frame rates after a power source
+        // change, start the new session now that the old one is cleaned up.
+        var restartSession = session ? session.createRestartSession() : null
+        if (restartSession) {
+            // Avoid the push transition animation
+            var component = Qt.createComponent("StreamSegue.qml")
+            var segue = component.createObject(stackView, {
+                                                   "appName": appName,
+                                                   "session": restartSession,
+                                                   "isResume": true,
+                                                   "quitAfter": quitAfter,
+                                                   "isPowerRestart": true
+                                               })
+            stackView.replace(stackView.currentItem, segue, StackView.Immediate)
+
+            // Show the Qt window again for the connecting screen
+            window.visible = true
+        }
+
         // Garbage collect the Session object since it's pretty heavyweight
         // and keeps other libraries (like SDL_TTF) around until it is deleted.
         session = null
@@ -152,8 +181,13 @@ Item {
             // in the hintText control itself to synchronize
             // with Session.exec() which requires no concurrent
             // gamepad usage.
-            hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(SdlGamepadKeyNavigation.getConnectedGamepads() > 0 ?
-                                                  qsTr("Start+Select+L1+R1") : qsTr("Ctrl+Alt+Shift+Q"))
+            if (streamSegue.isPowerRestart) {
+                hintText.text = qsTr("Power source changed. Restarting the stream to switch frame rates.")
+            }
+            else {
+                hintText.text = qsTr("Tip:") + " " + qsTr("Press %1 to disconnect your session").arg(SdlGamepadKeyNavigation.getConnectedGamepads() > 0 ?
+                                                      qsTr("Start+Select+L1+R1") : qsTr("Ctrl+Alt+Shift+Q"))
+            }
 
             // Stop GUI gamepad usage now
             SdlGamepadKeyNavigation.disable()

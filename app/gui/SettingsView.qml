@@ -758,6 +758,24 @@ Flickable {
                     ToolTip.text: qsTr("Streams at this frame rate while this device is running on battery to save power.")
                 }
 
+                CheckBox {
+                    id: restartOnPowerChangeCheck
+                    width: parent.width
+                    text: qsTr("Restart stream on power change")
+                    font.pointSize: 12
+                    visible: SystemProperties.hasBattery
+                    enabled: StreamingPreferences.fpsOnBattery !== 0
+                    checked: StreamingPreferences.restartOnPowerChange
+                    onCheckedChanged: {
+                        StreamingPreferences.restartOnPowerChange = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 5000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Restarts the stream to switch frame rates when this device is plugged in or unplugged. The app on the host keeps running.")
+                }
+
                 Label {
                     width: parent.width
                     id: bitrateTitle
