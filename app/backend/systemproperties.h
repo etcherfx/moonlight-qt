@@ -25,6 +25,7 @@ public:
     Q_PROPERTY(bool hasBrowser MEMBER hasBrowser CONSTANT)
     Q_PROPERTY(bool hasDiscordIntegration MEMBER hasDiscordIntegration CONSTANT)
     Q_PROPERTY(bool usesMaterial3Theme MEMBER usesMaterial3Theme CONSTANT)
+    Q_PROPERTY(bool hasBattery MEMBER hasBattery CONSTANT)
     Q_PROPERTY(QString versionString MEMBER versionString CONSTANT)
 
     // Properties queried asynchronously (startAsyncLoad() must be called!)
@@ -68,6 +69,7 @@ private:
     QString versionString;
     bool usesMaterial3Theme;
     bool isDarwin;
+    bool hasBattery;
 
     // Properties only set if startAsyncLoad() is called
     bool hasHardwareAcceleration;

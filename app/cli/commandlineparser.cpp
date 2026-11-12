@@ -348,6 +348,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addValueOption("resolution", "custom <width>x<height> resolution");
     parser.addToggleOption("vsync", "V-Sync");
     parser.addValueOption("fps", "FPS");
+    parser.addValueOption("fps-on-battery", "FPS while on battery (0 to disable)");
     parser.addValueOption("bitrate", "bitrate in Kbps");
     parser.addValueOption("packet-size", "video packet size");
     parser.addChoiceOption("display-mode", "display mode", m_WindowModeMap.keys());
@@ -408,6 +409,14 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
         preferences->fps = parser.getIntOption("fps");
         if (!inRange(preferences->fps, 10, 480)) {
             fprintf(stderr, "Warning: FPS is out of the supported range (10 - 480 FPS). Performance may suffer!\n");
+        }
+    }
+
+    // Resolve --fps-on-battery option
+    if (parser.isSet("fps-on-battery")) {
+        preferences->fpsOnBattery = parser.getIntOption("fps-on-battery");
+        if (preferences->fpsOnBattery != 0 && !inRange(preferences->fpsOnBattery, 10, 480)) {
+            fprintf(stderr, "Warning: FPS on battery is out of the supported range (10 - 480 FPS). Performance may suffer!\n");
         }
     }
 

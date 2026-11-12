@@ -668,6 +668,98 @@ Flickable {
 
                 Label {
                     width: parent.width
+                    id: fpsOnBatteryTitle
+                    text: qsTr("FPS on battery")
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                    visible: SystemProperties.hasBattery
+                }
+
+                AutoResizingComboBox {
+                    function createModel() {
+                        var model = Qt.createQmlObject('import QtQuick 2.0; ListModel {}', parent, '')
+
+                        // Collect the frame rates to offer in ascending order
+                        var rates = [30, 60]
+                        for (var displayIndex = 0; ; displayIndex++) {
+                            var refreshRate = SystemProperties.getRefreshRate(displayIndex)
+                            if (refreshRate === 0) {
+                                // Exceeded max count of displays
+                                break
+                            }
+
+                            if (rates.indexOf(refreshRate) < 0) {
+                                rates.push(refreshRate)
+                            }
+                        }
+
+                        // Keep a saved value that isn't otherwise in the list
+                        var savedFps = StreamingPreferences.fpsOnBattery
+                        if (savedFps !== 0 && rates.indexOf(savedFps) < 0) {
+                            rates.push(savedFps)
+                        }
+
+                        rates.sort(function(a, b) { return a - b })
+
+                        model.append({
+                                         text: qsTr("Off"),
+                                         val: 0
+                                     })
+
+                        for (var i = 0; i < rates.length; i++) {
+                            model.append({
+                                             text: qsTr("%1 FPS").arg(rates[i]),
+                                             val: rates[i]
+                                         })
+                        }
+
+                        return model
+                    }
+
+                    // This is used on initialization and upon retranslation
+                    function reinitialize() {
+                        if (!visible) {
+                            // Do nothing if the control won't even be visible
+                            return
+                        }
+
+                        model = createModel()
+                        currentIndex = 0
+
+                        // Set the current value based on the saved preferences
+                        var savedFps = StreamingPreferences.fpsOnBattery
+                        for (var i = 0; i < model.count; i++) {
+                            if (model.get(i).val === savedFps) {
+                                currentIndex = i
+                                break
+                            }
+                        }
+
+                        recalculateWidth()
+                    }
+
+                    Component.onCompleted: {
+                        reinitialize()
+                        languageChanged.connect(reinitialize)
+                    }
+
+                    id: fpsOnBatteryComboBox
+                    visible: SystemProperties.hasBattery
+                    hoverEnabled: true
+                    textRole: "text"
+                    // ::onActivated must be used, as it only listens for when the index is changed by a human
+                    onActivated: {
+                        StreamingPreferences.fpsOnBattery = model.get(currentIndex).val
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 5000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Streams at this frame rate while this device is running on battery to save power.")
+                }
+
+                Label {
+                    width: parent.width
                     id: bitrateTitle
                     text: qsTr("Video bitrate:")
                     font.pointSize: 12

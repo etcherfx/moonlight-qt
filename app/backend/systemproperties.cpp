@@ -104,6 +104,10 @@ SystemProperties::SystemProperties()
     hasDiscordIntegration = false;
 #endif
 
+    // Only show battery-related options if this device might have a battery.
+    // An unknown power state still counts, since we can't rule it out.
+    hasBattery = SDL_GetPowerInfo(nullptr, nullptr) != SDL_POWERSTATE_NO_BATTERY;
+
     // These will be queried asynchronously to avoid blocking the UI
     hasHardwareAcceleration = true;
     rendererAlwaysFullScreen = false;

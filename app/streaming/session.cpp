@@ -1,6 +1,7 @@
 #include "session.h"
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
+#include "streaming/powersource.h"
 #include "backend/richpresencemanager.h"
 
 #include <Limelight.h>
@@ -46,6 +47,19 @@
 #endif
 
 #define CONN_TEST_SERVER "qt.conntest.moonlight-stream.org"
+
+static PowerSource getPowerSource()
+{
+    switch (SDL_GetPowerInfo(nullptr, nullptr)) {
+    case SDL_POWERSTATE_ON_BATTERY:
+        return PowerSource::Battery;
+    case SDL_POWERSTATE_CHARGING:
+    case SDL_POWERSTATE_CHARGED:
+        return PowerSource::Ac;
+    default:
+        return PowerSource::None;
+    }
+}
 
 CONNECTION_LISTENER_CALLBACKS Session::k_ConnCallbacks = {
     Session::clStageStarting,
@@ -678,8 +692,34 @@ bool Session::initialize(QQuickWindow* qtWindow)
     LiInitializeVideoCallbacks(&m_VideoCallbacks);
     m_VideoCallbacks.setup = drSetup;
 
-    m_StreamConfig.fps = m_Preferences->fps;
+    PowerSource powerSource = getPowerSource();
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "Power source: %s",
+                powerSourceName(powerSource));
+
+    m_StreamConfig.fps = getFrameRateForPowerSource(m_Preferences->fps,
+                                                    m_Preferences->fpsOnBattery,
+                                                    powerSource);
     m_StreamConfig.bitrate = m_Preferences->bitrateKbps;
+
+    if (m_StreamConfig.fps != m_Preferences->fps) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Using battery frame rate: %d FPS",
+                    m_StreamConfig.fps);
+
+        // If the user hasn't adjusted the bitrate from the default for their
+        // normal frame rate, use the default bitrate for the battery frame rate.
+        // If they have adjusted it, we'll assume they really wanted that value.
+        if (m_StreamConfig.bitrate == StreamingPreferences::getDefaultBitrate(m_StreamConfig.width,
+                                                                              m_StreamConfig.height,
+                                                                              m_Preferences->fps,
+                                                                              m_Preferences->enableYUV444)) {
+            m_StreamConfig.bitrate = StreamingPreferences::getDefaultBitrate(m_StreamConfig.width,
+                                                                             m_StreamConfig.height,
+                                                                             m_StreamConfig.fps,
+                                                                             m_Preferences->enableYUV444);
+        }
+    }
 
 #ifndef STEAM_LINK
     // Opt-in to all encryption features if we detect that the platform
@@ -1703,13 +1743,15 @@ bool Session::startConnectionAsync()
     // This should provide equivalent image quality for YUV420 as the stream would have
     // had if the host supported YUV444 (though obviously with 4:2:0 subsampling).
     // If the user has adjusted the bitrate from default, we'll assume they really wanted
-    // that value and not second guess them.
+    // that value and not second guess them. This checks the saved bitrate against the
+    // default for the normal frame rate, since the battery frame rate may have already
+    // replaced a default bitrate with the default for the battery frame rate.
     if (m_Preferences->enableYUV444 &&
         !(m_StreamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_YUV444) &&
-        m_StreamConfig.bitrate == StreamingPreferences::getDefaultBitrate(m_StreamConfig.width,
-                                                                          m_StreamConfig.height,
-                                                                          m_StreamConfig.fps,
-                                                                          true)) {
+        m_Preferences->bitrateKbps == StreamingPreferences::getDefaultBitrate(m_StreamConfig.width,
+                                                                              m_StreamConfig.height,
+                                                                              m_Preferences->fps,
+                                                                              true)) {
         m_StreamConfig.bitrate = StreamingPreferences::getDefaultBitrate(m_StreamConfig.width,
                                                                          m_StreamConfig.height,
                                                                          m_StreamConfig.fps,
